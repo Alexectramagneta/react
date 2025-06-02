@@ -36,6 +36,7 @@ import {
   HostText,
   ScopeComponent,
 } from 'react-reconciler/src/ReactWorkTags';
+import {getLowestCommonAncestor} from 'react-reconciler/src/ReactFiberTreeReflection';
 
 import getEventTarget from './getEventTarget';
 import {
@@ -52,8 +53,8 @@ import {
   enableLegacyFBSupport,
   enableCreateEventHandleAPI,
   enableScopeAPI,
-  enableOwnerStacks,
   disableCommentsAsDOMContainers,
+  enableScrollEndPolyfill,
 } from 'shared/ReactFeatureFlags';
 import {createEventListenerWrapperWithPriority} from './ReactDOMEventListener';
 import {
@@ -69,6 +70,7 @@ import * as EnterLeaveEventPlugin from './plugins/EnterLeaveEventPlugin';
 import * as SelectEventPlugin from './plugins/SelectEventPlugin';
 import * as SimpleEventPlugin from './plugins/SimpleEventPlugin';
 import * as FormActionEventPlugin from './plugins/FormActionEventPlugin';
+import * as ScrollEndEventPlugin from './plugins/ScrollEndEventPlugin';
 
 import reportGlobalError from 'shared/reportGlobalError';
 
@@ -93,6 +95,9 @@ EnterLeaveEventPlugin.registerEvents();
 ChangeEventPlugin.registerEvents();
 SelectEventPlugin.registerEvents();
 BeforeInputEventPlugin.registerEvents();
+if (enableScrollEndPolyfill) {
+  ScrollEndEventPlugin.registerEvents();
+}
 
 function extractEvents(
   dispatchQueue: DispatchQueue,
@@ -184,6 +189,17 @@ function extractEvents(
       targetContainer,
     );
   }
+  if (enableScrollEndPolyfill) {
+    ScrollEndEventPlugin.extractEvents(
+      dispatchQueue,
+      domEventName,
+      targetInst,
+      nativeEvent,
+      nativeEventTarget,
+      eventSystemFlags,
+      targetContainer,
+    );
+  }
 }
 
 // List of events that need to be individually attached to media elements.
@@ -259,7 +275,7 @@ function processDispatchQueueItemsInOrder(
       if (instance !== previousInstance && event.isPropagationStopped()) {
         return;
       }
-      if (__DEV__ && enableOwnerStacks && instance !== null) {
+      if (__DEV__ && instance !== null) {
         runWithFiberInDEV(
           instance,
           executeDispatch,
@@ -278,7 +294,7 @@ function processDispatchQueueItemsInOrder(
       if (instance !== previousInstance && event.isPropagationStopped()) {
         return;
       }
-      if (__DEV__ && enableOwnerStacks && instance !== null) {
+      if (__DEV__ && instance !== null) {
         runWithFiberInDEV(
           instance,
           executeDispatch,
@@ -811,6 +827,7 @@ export function accumulateSinglePhaseListeners(
 // - BeforeInputEventPlugin
 // - ChangeEventPlugin
 // - SelectEventPlugin
+// - ScrollEndEventPlugin
 // This is because we only process these plugins
 // in the bubble phase, so we need to accumulate two
 // phase event listeners (via emulation).
@@ -846,9 +863,14 @@ export function accumulateTwoPhaseListeners(
         );
       }
     }
+    if (instance.tag === HostRoot) {
+      return listeners;
+    }
     instance = instance.return;
   }
-  return listeners;
+  // If we didn't reach the root it means we're unmounted and shouldn't
+  // dispatch any events on the target.
+  return [];
 }
 
 function getParent(inst: Fiber | null): Fiber | null {
@@ -866,46 +888,6 @@ function getParent(inst: Fiber | null): Fiber | null {
   } while (inst && inst.tag !== HostComponent && inst.tag !== HostSingleton);
   if (inst) {
     return inst;
-  }
-  return null;
-}
-
-/**
- * Return the lowest common ancestor of A and B, or null if they are in
- * different trees.
- */
-function getLowestCommonAncestor(instA: Fiber, instB: Fiber): Fiber | null {
-  let nodeA: null | Fiber = instA;
-  let nodeB: null | Fiber = instB;
-  let depthA = 0;
-  for (let tempA: null | Fiber = nodeA; tempA; tempA = getParent(tempA)) {
-    depthA++;
-  }
-  let depthB = 0;
-  for (let tempB: null | Fiber = nodeB; tempB; tempB = getParent(tempB)) {
-    depthB++;
-  }
-
-  // If A is deeper, crawl up.
-  while (depthA - depthB > 0) {
-    nodeA = getParent(nodeA);
-    depthA--;
-  }
-
-  // If B is deeper, crawl up.
-  while (depthB - depthA > 0) {
-    nodeB = getParent(nodeB);
-    depthB--;
-  }
-
-  // Walk in lockstep until we find a match.
-  let depth = depthA;
-  while (depth--) {
-    if (nodeA === nodeB || (nodeB !== null && nodeA === nodeB.alternate)) {
-      return nodeA;
-    }
-    nodeA = getParent(nodeA);
-    nodeB = getParent(nodeB);
   }
   return null;
 }
@@ -971,7 +953,8 @@ export function accumulateEnterLeaveTwoPhaseListeners(
   from: Fiber | null,
   to: Fiber | null,
 ): void {
-  const common = from && to ? getLowestCommonAncestor(from, to) : null;
+  const common =
+    from && to ? getLowestCommonAncestor(from, to, getParent) : null;
 
   if (from !== null) {
     accumulateEnterLeaveListenersForEvent(

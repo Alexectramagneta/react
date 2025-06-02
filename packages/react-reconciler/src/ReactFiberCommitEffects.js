@@ -7,26 +7,31 @@
  * @flow
  */
 
+import type {
+  ViewTransitionProps,
+  ProfilerProps,
+  ProfilerPhase,
+} from 'shared/ReactTypes';
 import type {Fiber} from './ReactInternalTypes';
 import type {UpdateQueue} from './ReactFiberClassUpdateQueue';
 import type {FunctionComponentUpdateQueue} from './ReactFiberHooks';
 import type {HookFlags} from './ReactHookEffectTags';
-import {
-  getViewTransitionName,
-  type ViewTransitionState,
-  type ViewTransitionProps,
-} from './ReactFiberViewTransitionComponent';
+import type {FragmentInstanceType} from './ReactFiberConfig';
+import type {ViewTransitionState} from './ReactFiberViewTransitionComponent';
+
+import {getViewTransitionName} from './ReactFiberViewTransitionComponent';
 
 import {
   enableProfilerTimer,
   enableProfilerCommitHooks,
   enableProfilerNestedUpdatePhase,
   enableSchedulingProfiler,
-  enableUseEffectCRUDOverload,
   enableViewTransition,
+  enableFragmentRefs,
 } from 'shared/ReactFeatureFlags';
 import {
   ClassComponent,
+  Fragment,
   HostComponent,
   HostHoistable,
   HostSingleton,
@@ -48,6 +53,7 @@ import {
 import {
   getPublicInstance,
   createViewTransitionInstance,
+  createFragmentInstance,
 } from './ReactFiberConfig';
 import {
   captureCommitPhaseError,
@@ -58,7 +64,6 @@ import {
   Layout as HookLayout,
   Insertion as HookInsertion,
   Passive as HookPassive,
-  HasEffect as HookHasEffect,
 } from './ReactHookEffectTags';
 import {didWarnAboutReassigningProps} from './ReactFiberBeginWork';
 import {
@@ -80,10 +85,6 @@ import {
 } from './ReactFiberCallUserSpace';
 
 import {runWithFiberInDEV} from './ReactCurrentFiber';
-import {
-  ResourceEffectIdentityKind,
-  ResourceEffectUpdateKind,
-} from './ReactFiberHooks';
 
 function shouldProfile(current: Fiber): boolean {
   return (
@@ -160,91 +161,19 @@ export function commitHookEffectListMount(
 
           // Mount
           let destroy;
-          if (enableUseEffectCRUDOverload) {
-            if (effect.resourceKind === ResourceEffectIdentityKind) {
-              if (__DEV__) {
-                effect.inst.resource = runWithFiberInDEV(
-                  finishedWork,
-                  callCreateInDEV,
-                  effect,
-                );
-                if (effect.inst.resource == null) {
-                  console.error(
-                    'useEffect must provide a callback which returns a resource. ' +
-                      'If a managed resource is not needed here, do not provide an updater or ' +
-                      'destroy callback. Received %s',
-                    effect.inst.resource,
-                  );
-                }
-              } else {
-                effect.inst.resource = effect.create();
-              }
-              destroy = effect.inst.destroy;
-            }
-            if (effect.resourceKind === ResourceEffectUpdateKind) {
-              if (
-                // We don't want to fire updates on remount during Activity
-                (flags & HookHasEffect) > 0 &&
-                typeof effect.update === 'function' &&
-                effect.inst.resource != null
-              ) {
-                // TODO(@poteto) what about multiple updates?
-                if (__DEV__) {
-                  runWithFiberInDEV(finishedWork, callCreateInDEV, effect);
-                } else {
-                  effect.update(effect.inst.resource);
-                }
-              }
-            }
-          }
           if (__DEV__) {
             if ((flags & HookInsertion) !== NoHookEffect) {
               setIsRunningInsertionEffect(true);
             }
-            if (enableUseEffectCRUDOverload) {
-              if (effect.resourceKind == null) {
-                destroy = runWithFiberInDEV(
-                  finishedWork,
-                  callCreateInDEV,
-                  effect,
-                );
-              }
-            } else {
-              destroy = runWithFiberInDEV(
-                finishedWork,
-                callCreateInDEV,
-                effect,
-              );
-            }
+            destroy = runWithFiberInDEV(finishedWork, callCreateInDEV, effect);
             if ((flags & HookInsertion) !== NoHookEffect) {
               setIsRunningInsertionEffect(false);
             }
           } else {
-            if (enableUseEffectCRUDOverload) {
-              if (effect.resourceKind == null) {
-                const create = effect.create;
-                const inst = effect.inst;
-                destroy = create();
-                inst.destroy = destroy;
-              }
-            } else {
-              if (effect.resourceKind != null) {
-                if (__DEV__) {
-                  console.error(
-                    'Expected only SimpleEffects when enableUseEffectCRUDOverload is disabled, ' +
-                      'got %s',
-                    effect.resourceKind,
-                  );
-                }
-              }
-              const create = effect.create;
-              const inst = effect.inst;
-              // $FlowFixMe[incompatible-type] (@poteto)
-              // $FlowFixMe[not-a-function] (@poteto)
-              destroy = create();
-              // $FlowFixMe[incompatible-type] (@poteto)
-              inst.destroy = destroy;
-            }
+            const create = effect.create;
+            const inst = effect.inst;
+            destroy = create();
+            inst.destroy = destroy;
           }
 
           if (enableSchedulingProfiler) {
@@ -334,13 +263,7 @@ export function commitHookEffectListUnmount(
           const inst = effect.inst;
           const destroy = inst.destroy;
           if (destroy !== undefined) {
-            if (enableUseEffectCRUDOverload) {
-              if (effect.resourceKind == null) {
-                inst.destroy = undefined;
-              }
-            } else {
-              inst.destroy = undefined;
-            }
+            inst.destroy = undefined;
             if (enableSchedulingProfiler) {
               if ((flags & HookPassive) !== NoHookEffect) {
                 markComponentPassiveEffectUnmountStarted(finishedWork);
@@ -354,41 +277,7 @@ export function commitHookEffectListUnmount(
                 setIsRunningInsertionEffect(true);
               }
             }
-            if (enableUseEffectCRUDOverload) {
-              if (
-                effect.resourceKind === ResourceEffectIdentityKind &&
-                effect.inst.resource != null
-              ) {
-                safelyCallDestroy(
-                  finishedWork,
-                  nearestMountedAncestor,
-                  destroy,
-                  effect.inst.resource,
-                );
-                if (effect.next.resourceKind === ResourceEffectUpdateKind) {
-                  // $FlowFixMe[prop-missing] (@poteto)
-                  effect.next.update = undefined;
-                } else {
-                  if (__DEV__) {
-                    console.error(
-                      'Expected a ResourceEffectUpdateKind to follow ResourceEffectIdentityKind, ' +
-                        'got %s. This is a bug in React.',
-                      effect.next.resourceKind,
-                    );
-                  }
-                }
-                effect.inst.resource = null;
-              }
-              if (effect.resourceKind == null) {
-                safelyCallDestroy(
-                  finishedWork,
-                  nearestMountedAncestor,
-                  destroy,
-                );
-              }
-            } else {
-              safelyCallDestroy(finishedWork, nearestMountedAncestor, destroy);
-            }
+            safelyCallDestroy(finishedWork, nearestMountedAncestor, destroy);
             if (__DEV__) {
               if ((flags & HookInsertion) !== NoHookEffect) {
                 setIsRunningInsertionEffect(false);
@@ -877,7 +766,7 @@ function commitAttachRef(finishedWork: Fiber) {
       case HostComponent:
         instanceToUse = getPublicInstance(finishedWork.stateNode);
         break;
-      case ViewTransitionComponent:
+      case ViewTransitionComponent: {
         if (enableViewTransition) {
           const instance: ViewTransitionState = finishedWork.stateNode;
           const props: ViewTransitionProps = finishedWork.memoizedProps;
@@ -886,6 +775,18 @@ function commitAttachRef(finishedWork: Fiber) {
             instance.ref = createViewTransitionInstance(name);
           }
           instanceToUse = instance.ref;
+          break;
+        }
+        instanceToUse = finishedWork.stateNode;
+        break;
+      }
+      case Fragment:
+        if (enableFragmentRefs) {
+          const instance: null | FragmentInstanceType = finishedWork.stateNode;
+          if (instance === null) {
+            finishedWork.stateNode = createFragmentInstance(finishedWork);
+          }
+          instanceToUse = finishedWork.stateNode;
           break;
         }
       // Fallthrough
@@ -1040,9 +941,9 @@ function commitProfiler(
   commitStartTime: number,
   effectDuration: number,
 ) {
-  const {id, onCommit, onRender} = finishedWork.memoizedProps;
+  const {id, onCommit, onRender} = (finishedWork.memoizedProps: ProfilerProps);
 
-  let phase = current === null ? 'mount' : 'update';
+  let phase: ProfilerPhase = current === null ? 'mount' : 'update';
   if (enableProfilerNestedUpdatePhase) {
     if (isCurrentUpdateNested()) {
       phase = 'nested-update';
@@ -1053,8 +954,11 @@ function commitProfiler(
     onRender(
       id,
       phase,
+      // $FlowFixMe: This should be always a number in profiling mode
       finishedWork.actualDuration,
+      // $FlowFixMe: This should be always a number in profiling mode
       finishedWork.treeBaseDuration,
+      // $FlowFixMe: This should be always a number in profiling mode
       finishedWork.actualStartTime,
       commitStartTime,
     );
@@ -1062,12 +966,7 @@ function commitProfiler(
 
   if (enableProfilerCommitHooks) {
     if (typeof onCommit === 'function') {
-      onCommit(
-        finishedWork.memoizedProps.id,
-        phase,
-        effectDuration,
-        commitStartTime,
-      );
+      onCommit(id, phase, effectDuration, commitStartTime);
     }
   }
 }

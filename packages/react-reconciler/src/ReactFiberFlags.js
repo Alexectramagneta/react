@@ -42,6 +42,7 @@ export const StoreConsistency = /*             */ 0b0000000000000000100000000000
 // It's OK to reuse these bits because these flags are mutually exclusive for
 // different fiber types. We should really be doing this for as many flags as
 // possible, because we're about to run out of bits.
+export const Hydrate = Callback;
 export const ScheduleRetry = StoreConsistency;
 export const ShouldSuspendCommit = Visibility;
 export const ViewTransitionNamedMount = ShouldSuspendCommit;
@@ -108,8 +109,8 @@ export const BeforeMutationMask: number =
 
 // For View Transition support we use the snapshot phase to scan the tree for potentially
 // affected ViewTransition components.
-export const BeforeMutationTransitionMask: number =
-  Snapshot | Update | Placement | ChildDeletion | Visibility;
+export const BeforeAndAfterMutationTransitionMask: number =
+  Snapshot | Update | Placement | ChildDeletion | Visibility | ContentReset;
 
 export const MutationMask =
   Placement |

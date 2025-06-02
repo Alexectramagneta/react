@@ -92,12 +92,19 @@ export const enableHalt = __EXPERIMENTAL__;
 
 export const enableViewTransition = __EXPERIMENTAL__;
 
-export const enableSwipeTransition = __EXPERIMENTAL__;
+export const enableGestureTransition = __EXPERIMENTAL__;
 
-/**
- * Switches the Fabric API from doing layout in commit work instead of complete work.
- */
-export const enableFabricCompleteRootInCommitPhase = false;
+export const enableScrollEndPolyfill = __EXPERIMENTAL__;
+
+export const enableSuspenseyImages = false;
+
+export const enableFizzBlockingRender = __EXPERIMENTAL__; // rel="expect"
+
+export const enableSrcObject = __EXPERIMENTAL__;
+
+export const enableHydrationChangeEvent = __EXPERIMENTAL__;
+
+export const enableDefaultTransitionIndicator = __EXPERIMENTAL__;
 
 /**
  * Switches Fiber creation to a simple object instead of a constructor.
@@ -134,11 +141,7 @@ export const passChildrenWhenCloningPersistedNodes = false;
  */
 export const enablePersistedModeClonedFlag = false;
 
-export const enableOwnerStacks = true;
-
-export const enableShallowPropDiffing = false;
-
-export const enableSiblingPrerendering = true;
+export const enableEagerAlternateStateNodeCleanup = true;
 
 /**
  * Enables an expiration time for retry lanes to avoid starvation.
@@ -154,14 +157,9 @@ export const transitionLaneExpirationMs = 5000;
  */
 export const enableInfiniteRenderLoopDetection = false;
 
-/**
- * Experimental new hook for better managing resources in effects.
- */
-export const enableUseEffectCRUDOverload = false;
-
-export const enableFastAddPropertiesInDiffing = true;
-
 export const enableLazyPublicInstanceInFabric = false;
+
+export const enableFragmentRefs = __EXPERIMENTAL__;
 
 // -----------------------------------------------------------------------------
 // Ready for next major.
@@ -268,4 +266,4 @@ export const enableUpdaterTracking = __PROFILE__;
 // Internal only.
 export const enableDO_NOT_USE_disableStrictPassiveEffect = false;
 
-export const enableRemoveConsolePatches = true;
+export const ownerStackLimit = 1e4;
